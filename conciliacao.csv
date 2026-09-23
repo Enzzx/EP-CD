@@ -421,14 +421,14 @@ pokemon_id_csv,numero_pokedex,nome_csv,nome_api,formato,observacao
 420,381,Latios,latios,EXATO,
 421,381,Mega Latios,latios-mega,FORMA_ALTERNATIVA,
 422,382,Kyogre,kyogre,EXATO,
-423,382,Primal Kyogre,kyogre,PARCIAL_ESPECIE,Forma Primal sem entrada própria na PokéAPI; atributos de espécie herdados por associação.
+423,382,Primal Kyogre,kyogre-primal,FORMA_ALTERNATIVA,
 424,383,Groudon,groudon,EXATO,
-425,383,Primal Groudon,groudon,PARCIAL_ESPECIE,Forma Primal sem entrada própria na PokéAPI; atributos de espécie herdados por associação.
+425,383,Primal Groudon,groudon-primal,FORMA_ALTERNATIVA,
 426,384,Rayquaza,rayquaza,EXATO,
 427,384,Mega Rayquaza,rayquaza-mega,FORMA_ALTERNATIVA,
 428,385,Jirachi,jirachi,EXATO,
 429,386,Deoxys Normal Forme,deoxys-normal,FORMA_ALTERNATIVA,
-430,386,DeoxysAttack Forme,deoxys-attack,FORMA_ALTERNATIVA,
+430,386,DeoxysAttack Forme,deoxys-attack,FORMA_ALTERNATIVA,Exceção explícita: nome do CSV não normaliza genericamente para a PokéAPI.
 431,386,Deoxys Defense Forme,deoxys-defense,FORMA_ALTERNATIVA,
 432,386,Deoxys Speed Forme,deoxys-speed,FORMA_ALTERNATIVA,
 433,387,Turtwig,turtwig,EXATO,
@@ -710,8 +710,8 @@ pokemon_id_csv,numero_pokedex,nome_csv,nome_api,formato,observacao
 709,645,Landorus Incarnate Forme,landorus-incarnate,FORMA_ALTERNATIVA,
 710,645,Landorus Therian Forme,landorus-therian,FORMA_ALTERNATIVA,
 711,646,Kyurem,kyurem,EXATO,
-712,646,Kyurem Black Kyurem,kyurem-black,FORMA_ALTERNATIVA,
-713,646,Kyurem White Kyurem,kyurem-white,FORMA_ALTERNATIVA,
+712,646,Kyurem Black Kyurem,kyurem-black,FORMA_ALTERNATIVA,Exceção explícita: nome do CSV não normaliza genericamente para a PokéAPI.
+713,646,Kyurem White Kyurem,kyurem-white,FORMA_ALTERNATIVA,Exceção explícita: nome do CSV não normaliza genericamente para a PokéAPI.
 714,647,Keldeo Ordinary Forme,keldeo-ordinary,FORMA_ALTERNATIVA,
 715,647,Keldeo Resolute Forme,keldeo-resolute,FORMA_ALTERNATIVA,
 716,648,Meloetta Aria Forme,meloetta-aria,FORMA_ALTERNATIVA,
@@ -793,9 +793,9 @@ pokemon_id_csv,numero_pokedex,nome_csv,nome_api,formato,observacao
 792,715,Noivern,noivern,EXATO,
 793,716,Xerneas,xerneas,EXATO,
 794,717,Yveltal,yveltal,EXATO,
-795,718,Zygarde Half Forme,zygarde-50,FORMA_ALTERNATIVA,
+795,718,Zygarde Half Forme,zygarde-50,FORMA_ALTERNATIVA,Exceção explícita: nome do CSV não normaliza genericamente para a PokéAPI.
 796,719,Diancie,diancie,EXATO,
 797,719,Mega Diancie,diancie-mega,FORMA_ALTERNATIVA,
-798,720,Hoopa Confined,hoopa,FORMA_ALTERNATIVA,
+798,720,Hoopa Confined,hoopa,FORMA_ALTERNATIVA,Exceção explícita: nome do CSV não normaliza genericamente para a PokéAPI.
 799,720,Hoopa Unbound,hoopa-unbound,EXATO,
 800,721,Volcanion,volcanion,EXATO,

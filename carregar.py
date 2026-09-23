@@ -39,6 +39,8 @@ GENERACOES = {
 }
 
 # ---- Normalização de nomes para conciliação ---------------------------------------
+# Abordagem híbrida: chave canônica por conjunto de tokens (regra geral) somada a
+# exceções explícitas para os raros nomes do CSV que a normalização não alcança.
 def slugify(s):
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
     s = s.lower()
@@ -46,74 +48,67 @@ def slugify(s):
     return s
 
 
-# Nomes do CSV cuja forma padrão tem slug divergente na PokéAPI
-SPECIALS = {
-    "Nidoran♀": "nidoran-f",
-    "Nidoran♂": "nidoran-m",
-    "Farfetch'd": "farfetchd",
-    "Mr. Mime": "mr-mime",
-    "Mime Jr.": "mime-jr",
-    "Type: Null": "type-null",
-    "Flabébé": "flabebe",
-    "Giratina": "giratina-altered",
-    "Shaymin": "shaymin-land",
-    "Tornadus": "tornadus-incarnate",
-    "Thundurus": "thundurus-incarnate",
-    "Landorus": "landorus-incarnate",
-    "Keldeo": "keldeo-ordinary",
-    "Meloetta": "meloetta-aria",
-    "Darmanitan": "darmanitan-standard",
-    "Pumpkaboo": "pumpkaboo-average",
-    "Gourgeist": "gourgeist-average",
-    "Aegislash": "aegislash-shield",
-    "Deoxys": "deoxys-normal",
-    "Wormadam": "wormadam-plant",
+# Qualificadores que o CSV usa e a PokéAPI não registra no slug.
+RUIDO = {"forme", "form", "mode", "cloak", "size", "style", "standard", "ordinary"}
+
+# Exceções: nomes do CSV em que o conjunto de tokens não casa com o slug
+# (palavra duplicada, token mesclado ou qualificador fora do ruído).
+EXCECOES = {
     "DeoxysAttack Forme": "deoxys-attack",
-    "Rotom": "rotom",
-    "Heat Rotom": "rotom-heat",
-    "Wash Rotom": "rotom-wash",
-    "Frost Rotom": "rotom-frost",
-    "Fan Rotom": "rotom-fan",
-    "Mow Rotom": "rotom-mow",
-    "Basculin": "basculin-red-striped",
-    "Frillish": "frillish-male",
-    "Jellicent": "jellicent-male",
-    "Pyroar": "pyroar-male",
-    "Kyurem": "kyurem",
     "Kyurem Black Kyurem": "kyurem-black",
     "Kyurem White Kyurem": "kyurem-white",
-    "Zygarde": "zygarde-50",
     "Zygarde Half Forme": "zygarde-50",
     "Hoopa Confined": "hoopa",
 }
 
 
-def api_candidates(csv_name):
-    """Gera candidatos a slug da PokéAPI a partir do nome do CSV."""
-    nm = csv_name.strip()
-    if nm in SPECIALS:
-        return [SPECIALS[nm]]
-    if nm.startswith("Mega "):
-        rest = nm[5:].strip()
-        parts = rest.split()
-        if parts and parts[-1] in ("X", "Y"):
-            base = slugify(" ".join(parts[:-1]))
-            return [f"{base}-mega-{parts[-1].lower()}"]
-        return [f"{slugify(rest)}-mega"]
-    if nm.startswith("Primal "):
-        return []
-    cands = [slugify(nm)]
-    for suf in ("-forme", "-size", "-cloak", "-mode"):
-        if cands[0].endswith(suf):
-            cands.append(cands[0][: -len(suf)])
-    return cands
+def normalizar(nome):
+    """Reduz um nome a uma chave canônica: conjunto de tokens ordenado.
+    'Mega Charizard X' e 'charizard-mega-x' produzem a mesma chave."""
+    if not nome:
+        return ""
+    texto = nome.replace("♀", " f").replace("♂", " m")
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = texto.lower()
+    texto = texto.replace("'", "").replace(".", "")
+    tokens = [t for t in re.split(r"[^a-z0-9]+", texto) if t and t not in RUIDO]
+    return "|".join(sorted(tokens))
 
 
-def pick_candidate(csv_name, api_slugs):
-    for c in api_candidates(csv_name):
-        if c in api_slugs:
-            return c
-    return None
+def indexar_formas(api_forms, species_by_form):
+    """Índice chave normalizada -> formas. Formas padrão também entram pela
+    chave do nome da espécie ('Deoxys' casa com 'deoxys-normal')."""
+    indice = {}
+    for forma in api_forms.values():
+        chave = normalizar(forma["name"])
+        if chave:
+            indice.setdefault(chave, []).append(forma)
+        if forma.get("is_default"):
+            sp = species_by_form.get(forma["name"])
+            if sp and sp.get("name"):
+                chave_esp = normalizar(sp["name"])
+                if chave_esp:
+                    indice.setdefault(chave_esp, []).append(forma)
+    return indice
+
+
+def reconhecer(nome_csv, indice, api_slugs):
+    """Devolve (slug, formato, observacao) para um nome do CSV."""
+    nm = (nome_csv or "").strip()
+    if not nm:
+        return None, "NAO_CONCILIADO_NOME_AUSENTE", "Nome ausente no CSV (linha 63) - membro especial"
+    if nm in EXCECOES:
+        slug = EXCECOES[nm]
+        if slug in api_slugs:
+            return slug, "FORMA_ALTERNATIVA", "Exceção explícita: nome do CSV não normaliza genericamente para a PokéAPI."
+        return None, "NAO_CONCILIADO", f"Exceção configurada ('{nm}') sem forma correspondente na PokéAPI."
+    forma = indice.get(normalizar(nm))
+    if forma:
+        slug = forma[0]["name"]
+        formato = "EXATO" if slug == slugify(nm) else "FORMA_ALTERNATIVA"
+        return slug, formato, ""
+    return None, "NAO_CONCILIADO", "Forma sem correspondência na PokéAPI; atributos de espécie herdados por associação."
 
 
 # ---- Leitura do bronze --------------------------------------------------------------
@@ -310,6 +305,7 @@ def main():
 
         # ---- conciliação CSV x API ------------------------------------------------------
         api_slugs = set(api_forms.keys())
+        indice = indexar_formas(api_forms, species_by_form)
 
         # Tabelas: (id_csv, nome_csv, ...)
         csv_rows = []
@@ -343,28 +339,7 @@ def main():
                 obs = "Nome ausente no CSV (linha 63) - membro especial"
                 formato = "NAO_CONCILIADO_NOME_AUSENTE"
             else:
-                slug = pick_candidate(nome_csv, api_slugs)
-                if slug:
-                    obs = ""
-                    formato = "EXATO" if slug == slugify(nome_csv) else "FORMA_ALTERNATIVA"
-                else:
-                    if nome_csv.startswith("Primal "):
-                        base = slugify(nome_csv[7:])
-                        obs = "Forma Primal sem entrada própria na PokéAPI; atributos de espécie herdados por associação."
-                        formato = "PARCIAL_ESPECIE"
-                    elif nome_csv.startswith("Mega "):
-                        base = slugify(nome_csv if not nome_csv.endswith((" X", " Y")) else nome_csv[:-2])
-                        # fallback p/ associação por base
-                        cands = api_candidates(nome_csv)
-                        base_slug = None
-                        for c in cands:
-                            base_slug = c.split("-mega")[0]
-                        obs = "Forma Mega sem correspondência exata; atributos de espécie herdados por associação."
-                        formato = "PARCIAL_ESPECIE"
-                    else:
-                        base = slugify(nome_csv)
-                        obs = "Forma sem correspondência na PokéAPI; atributos de espécie herdados por associação."
-                        formato = "PARCIAL_ESPECIE"
+                slug, formato, obs = reconhecer(nome_csv, indice, api_slugs)
 
             if slug:
                 form = api_forms[slug]
@@ -401,10 +376,11 @@ def main():
                 if nome_csv.startswith("Primal "):
                     base = slugify(nome_csv[7:])
                 elif nome_csv and nome_csv.startswith("Mega "):
-                    cands = api_candidates(nome_csv)
-                    for c in cands:
-                        if "-mega" in c:
-                            base = c.split("-mega")[0]
+                    rest = nome_csv[5:].strip().split()
+                    if rest and rest[-1] in ("X", "Y"):
+                        base = slugify(" ".join(rest[:-1]))
+                    else:
+                        base = slugify(nome_csv[5:])
                 else:
                     base = slugify(nome_csv)
                 species = None
