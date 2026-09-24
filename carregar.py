@@ -299,9 +299,9 @@ def main():
         global _dims_cache
         _dims_cache = {}
 
-        # insere membros especiais em habitat/cor/forma/taxa
-        sk_habitat = inserir_lazy(conn, "silver.dim_habitat", "nome_habitat", "sk_habitat", "NAO_SE_APLICA")
-        sk_habitat_des = inserir_lazy(conn, "silver.dim_habitat", "nome_habitat", "sk_habitat", "SEM_INFORMACAO")
+        # garante os membros especiais de habitat (conceito inaplicável e dado ausente)
+        inserir_lazy(conn, "silver.dim_habitat", "nome_habitat", "sk_habitat", "NAO_SE_APLICA")
+        inserir_lazy(conn, "silver.dim_habitat", "nome_habitat", "sk_habitat", "SEM_INFORMACAO")
 
         # ---- conciliação CSV x API ------------------------------------------------------
         api_slugs = set(api_forms.keys())
@@ -451,23 +451,25 @@ def main():
 
         # ---- insere dim_pokemon --------------------------------------------------------
         rows_values = []
+        csv_fato_attrs = {}  # id_csv -> (sk_t1, sk_t2, sk_ger, sk_hab, sk_cor, sk_forma, sk_taxa)
         for r in dim_rows:
             type1 = r["type1"].strip().lower() if r["type1"] else "SEM_TIPO"
             type2 = r["type2"].strip().lower() if r["type2"] else "SEM_TIPO"
             g = r["geracao"] if r["geracao"] in GENERACOES else None
             sk_g = sk_ger.get(g) if g else None
-            # habitat
+            # habitat: distingue conceito inaplicável (NAO_SE_APLICA) de dado ausente (SEM_INFORMACAO)
             hab = r["attrs"].get("habitat")
             if hab is None:
-                if r["status_csv"] and not r["attrs"]:
-                    hab_sk = sk_habitat_des
-                else:
-                    hab_sk = sk_habitat  # NAO_SE_APLICA
+                hab_txt = "SEM_INFORMACAO" if (r["status_csv"] and not r["attrs"]) else "NAO_SE_APLICA"
             else:
-                hab_sk = inserir_lazy(conn, "silver.dim_habitat", "nome_habitat", "sk_habitat", hab)
-            cor_sk = inserir_lazy(conn, "silver.dim_cor", "nome_cor", "sk_cor", r["attrs"].get("cor", "SEM_INFORMACAO"))
-            forma_sk = inserir_lazy(conn, "silver.dim_forma_corporal", "nome_forma_corporal", "sk_forma_corporal", r["attrs"].get("forma_corporal", "SEM_INFORMACAO"))
-            taxa_sk = inserir_lazy(conn, "silver.dim_taxa_crescimento", "nome_taxa_crescimento", "sk_taxa_crescimento", r["attrs"].get("taxa_crescimento", "SEM_INFORMACAO"))
+                hab_txt = hab
+            hab_sk = inserir_lazy(conn, "silver.dim_habitat", "nome_habitat", "sk_habitat", hab_txt)
+            cor_txt = r["attrs"].get("cor", "SEM_INFORMACAO")
+            forma_txt = r["attrs"].get("forma_corporal", "SEM_INFORMACAO")
+            taxa_txt = r["attrs"].get("taxa_crescimento", "SEM_INFORMACAO")
+            cor_sk = inserir_lazy(conn, "silver.dim_cor", "nome_cor", "sk_cor", cor_txt)
+            forma_sk = inserir_lazy(conn, "silver.dim_forma_corporal", "nome_forma_corporal", "sk_forma_corporal", forma_txt)
+            taxa_sk = inserir_lazy(conn, "silver.dim_taxa_crescimento", "nome_taxa_crescimento", "sk_taxa_crescimento", taxa_txt)
             # tipos
             sk_t1 = sk_tipo.get(type1, sk_tipo["SEM_TIPO"])
             sk_t2 = sk_tipo.get(type2, sk_tipo["SEM_TIPO"])
@@ -484,29 +486,32 @@ def main():
             else:
                 cat = "COMUM"
             vel = r["stats"].get("speed")
+            if r["id_csv"] is not None:
+                # insumos das FKs de dimensão na tabela fato (esquema estrela)
+                csv_fato_attrs[r["id_csv"]] = (sk_t1, sk_t2, sk_g, hab_sk, cor_sk, forma_sk, taxa_sk)
             rows_values.append((
                 r["numero"], r["id_api"], r["id_csv"], r["nome_original"], r["nome_api"],
                 r["eh_forma_alternativa"], r["eh_padrao"],
                 r["numero"],
+                type1, type2, r["geracao"], hab_txt, cor_txt, forma_txt, taxa_txt,
                 r["altura"], r["peso"], r["exp"],
                 r["stats"].get("hp"), r["stats"].get("attack"), r["stats"].get("defense"),
                 r["stats"].get("special-attack"), r["stats"].get("special-defense"), vel,
                 r["attrs"].get("taxa_captura"), r["attrs"].get("felicidade_base"),
                 lend, mit, beb, cat,
-                sk_g, hab_sk, cor_sk, forma_sk, taxa_sk, sk_t1, sk_t2,
             ))
         with conn.cursor() as cur:
             cur.executemany(
                 """INSERT INTO silver.dim_pokemon (
                     numero_pokedex, id_api, id_csv, nome_original, nome_api,
                     eh_forma_alternativa, eh_padrao, pokemon_pai_pokedex,
+                    tipo_primario, tipo_secundario, geracao, habitat, cor,
+                    forma_corporal, taxa_crescimento,
                     altura, peso, experiencia_base,
                     hp_base, ataque_base, defesa_base, ataque_especial_base,
                     defesa_especial_base, velocidade_base,
                     taxa_captura, felicidade_base,
-                    eh_lendario, eh_mitico, eh_bebe, categoria_raridade,
-                    sk_geracao, sk_habitat, sk_cor, sk_forma_corporal,
-                    sk_taxa_crescimento, sk_tipo_primario, sk_tipo_secundario)
+                    eh_lendario, eh_mitico, eh_bebe, categoria_raridade)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);""",
                 rows_values,
             )
@@ -554,18 +559,34 @@ def main():
             win = int(doc["Winner"])
             sk1 = csv_id_sk[c1]
             sk2 = csv_id_sk[c2]
+            # (sk_t1, sk_t2, sk_ger, sk_hab, sk_cor, sk_forma, sk_taxa) do participante
+            a1 = csv_fato_attrs[c1]
+            a2 = csv_fato_attrs[c2]
             v1 = vel_csv.get(c1)
             v2 = vel_csv.get(c2)
+            diff = (v1 - v2) if (v1 is not None and v2 is not None) else None
             venceu1 = 1 if win == c1 else 0
             venceu2 = 1 if win == c2 else 0
-            rows_fato.append((ic, 1, sk1, sk2, venceu1, 1, v1, v2, (v1 - v2) if (v1 and v2) else None))
-            rows_fato.append((ic, 2, sk2, sk1, venceu2, 0, v2, v1, (v2 - v1) if (v1 and v2) else None))
+            # lado 1: participante c1 (oponente c2)
+            rows_fato.append((ic, 1, sk1, sk2,
+                              a1[0], a1[1], a2[0], a2[1],
+                              a1[2], a1[3], a1[4], a1[5], a1[6],
+                              venceu1, 1, v1, v2, diff))
+            # lado 2: participante c2 (oponente c1)
+            rows_fato.append((ic, 2, sk2, sk1,
+                              a2[0], a2[1], a1[0], a1[1],
+                              a2[2], a2[3], a2[4], a2[5], a2[6],
+                              venceu2, 0, v2, v1, (None if diff is None else -diff)))
         for i in range(0, len(rows_fato), 5000):
             with conn.cursor() as cur:
                 cur.executemany(
                     """INSERT INTO silver.fato_confronto
-                       (id_combate, lado, sk_pokemon, sk_oponente, venceu, atacou_primeiro, velocidade_combatente, velocidade_oponente, diff_velocidade)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s);""",
+                       (id_combate, lado, sk_pokemon, sk_oponente,
+                        sk_tipo_primario, sk_tipo_secundario,
+                        sk_tipo_primario_oponente, sk_tipo_secundario_oponente,
+                        sk_geracao, sk_habitat, sk_cor, sk_forma_corporal, sk_taxa_crescimento,
+                        venceu, atacou_primeiro, velocidade_combatente, velocidade_oponente, diff_velocidade)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);""",
                     rows_fato[i:i + 5000],
                 )
             conn.commit()

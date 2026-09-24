@@ -1,8 +1,8 @@
 # Ciência de Dados — EP01: ETL e Arquitetura Medalhão
 
 **Integrantes do grupo:**
-- _Enzo Silva Bellotti_
-- _Clóvis de Almeida Pelosini_
+- Enzo Silva Bellotti
+- Clóvis de Almeida Pelosini
 
 ---
 
@@ -96,36 +96,53 @@ antes de ir ao MongoDB. A API só é consultada quando o arquivo não existe; in
 
 ### 4.2 Diagrama do esquema estrela (RS2)
 
+Todas as dimensões ligam-se **diretamente** à tabela fato — não há dimensão ligada a
+dimensão (ausência de *snowflake*). `dim_pokemon` concentra o cadastro e guarda os
+atributos descritivos (tipo, geração, habitat, cor, forma corporal, taxa de crescimento)
+como **colunas de texto**, sem chave estrangeira para outras dimensões. As dimensões de
+atributo (`dim_tipo`, `dim_geracao`, `dim_habitat`, `dim_cor`, `dim_forma_corporal`,
+`dim_taxa_crescimento`) ligam-se à fato, no grão da participação, para os agregados de
+batalha.
+
 ```
-                 dim_geracao ── dim_habitat ── dim_cor
-                        │          │             │
-                        └──────────┼─────────────┼── dim_forma_corporal
-                                   ▼             ▼
-                        ┌──────────────────────────────┐
-                        │          dim_pokemon          │
-                        └──────────────┬───────────────┘
-                                       │
-                    ┌──────────────────┼──────────────────┐
-                    ▼                  ▼                  ▼
-             fato_confronto   fato_confronto     fato_confronto
-              (sk_pokemon)     (sk_oponente)     (lado, venceu, atacou_primeiro,
-                                                    velocidade_combatente,
-                                                    velocidade_oponente, diff_velocidade)
+   dim_tipo     dim_geracao     dim_habitat     dim_cor
+      ▲              ▲               ▲             ▲
+      │              │               │             │
+      │        dim_forma_corporal   dim_taxa_crescimento
+      │              ▲               ▲
+      │              │               │
+   ┌──┴──────────────┴───────────────┴─────────────┴──────────┐
+   │                      fato_confronto                       │
+   │  sk_pokemon, sk_oponente          → dim_pokemon (papel)   │
+   │  sk_tipo_primario/secundario      → dim_tipo              │
+   │  sk_tipo_primario/secundario_oponente → dim_tipo          │
+   │  sk_geracao → dim_geracao   sk_habitat → dim_habitat      │
+   │  sk_cor → dim_cor   sk_forma_corporal → dim_forma_corporal│
+   │  sk_taxa_crescimento → dim_taxa_crescimento               │
+   │  lado, venceu, atacou_primeiro, velocidade_combatente,    │
+   │  velocidade_oponente, diff_velocidade                     │
+   └───────────────────────────────────────────────────────────┘
 
-        efetividade_tipo (sk_tipo_atacante, sk_tipo_defensor, multiplicador)
-                    ▲                    ▲
-                    └────── dim_tipo ────┘
-
-        log_conciliacao (tabela de auditoria fora do estrela, opcional)
+   dim_pokemon (cadastro; tipo/geração/habitat também como texto, p/ análises 1–2)
+   efetividade_tipo (sk_tipo_atacante, sk_tipo_defensor, multiplicador) → dim_tipo
+   log_conciliacao (tabela de auditoria fora do estrela, opcional)
 ```
 
 Relações (todas `PRIMARY KEY` nas dimensões e `FOREIGN KEY` na fato — RS3/RS5):
 
 - `fato_confronto.sk_pokemon  → dim_pokemon.sk_pokemon`
 - `fato_confronto.sk_oponente → dim_pokemon.sk_pokemon` (dimensão papel, decisão 4)
-- `dim_pokemon.sk_tipo_primario/secundario → dim_tipo`
-- `dim_pokemon.sk_geracao/cor/habitat/forma_corporal/taxa_crescimento →` respectivas dimensões
+- `fato_confronto.sk_tipo_primario / sk_tipo_secundario → dim_tipo` (do participante)
+- `fato_confronto.sk_tipo_primario_oponente / sk_tipo_secundario_oponente → dim_tipo`
+- `fato_confronto.sk_geracao / sk_habitat / sk_cor / sk_forma_corporal / sk_taxa_crescimento →` respectivas dimensões
 - `efetividade_tipo → dim_tipo` (duas vezes)
+
+> `dim_pokemon` não possui chave estrangeira alguma: os atributos descritivos são
+> colunas de texto. As FKs que ligam as dimensões de atributo à fato existem para que os
+> agregados de batalha (análises 4, 6, 7 e 8) sejam obtidos sem atravessar `dim_pokemon`
+> e para cumprir o RS2 (toda dimensão ligada diretamente à fato). As cópias textuais em
+> `dim_pokemon` servem às análises de cadastro (1 e 2), que não podem passar pela fato
+> sob pena de dupla contagem (RS6).
 
 ### 4.3 As seis decisões da seção 4.2 (individuais e justificadas)
 
@@ -174,36 +191,35 @@ qualquer consulta, inclusive na análise proposta, sem reescrita.
 
 ### 4.4 Tratamento dos problemas das fontes (R4, RS4)
 
-- **Problema 1 (CSV `#` ≠ Pokédex):** conciliação **exclusivamente por nome** com
-  normalização (`slugify`: lowercase, remoção de acentos, não‑alfanuméricos → `-`) e um
-  dicionário explícito para os casos em que a forma padrão tem slug divergente
-  (`Deoxys→deoxys-normal`, `Giratina→giratina-altered`, `Shaymin→shaymin-land`,
-  `Tornadus→tornadus-incarnate`, etc.). Formas alternativas são resolvidas por padrão de
-  nome: `Mega X/Y`, queda de sufixos `Forme/Size/Cloak/Mode`, ordem invertida
-  (`Heat Rotom` → `rotom-heat`), e mapeamentos específicos para `Rotom`, `Basculin`,
-  `Frillish`, `Jellicent`, `Pyroar`, `Kyurem Black/White Kyurem`, `Zygarde Half Forme`,
-  `Hoopa Confined`. **Resultado: 797 de 800 registros conciliados** (99,6%). Os três
-  restantes são tratados (ver abaixo). Auditoria completa em `conciliacao.csv` e em
-  `silver.log_conciliacao`.
-  - `linha 63` (nome ausente) → **membro especial** (problema 2);
-  - `Primal Groudon` e `Primal Kyogre` → sem entrada própria na PokéAPI (a forma primal
-    não é uma variedade de `/pokemon-species/`); recebem **atributos de espécie por
-    associação de nome base** (`groudon`/`kyogre`) e são marcados como `PARCIAL_ESPECIE`
-    no relatório, mantendo estatísticas próprias. Nenhuma linha é descartada
-    silenciosamente.
+- **Problema 1 (CSV `#` ≠ Pokédex):** conciliação **exclusivamente por nome**, em duas
+  camadas: (a) `slugify` (lowercase, remoção de acentos, não‑alfanuméricos → `-`) para o
+  caso exato e (b) uma **chave canônica por conjunto de tokens ordenados** que torna
+  equivalentes nomes como `Mega Charizard X` e `charizard-mega-x` (função `normalizar`,
+  em `carregar.py`). A forma padrão de cada espécie é indexada também pelo nome da
+  própria espécie, cobrindo os casos em que o slug da forma padrão diverge
+  (`Deoxys → deoxys-normal`, `Giratina → giratina-altered`, `Shaymin → shaymin-land`,
+  `Tornadus → tornadus-incarnate`, `Basculin`, `Frillish/Jellicent`, `Pyroar`). Um
+  pequeno dicionário de **exceções explícitas** trata os nomes cujo conjunto de tokens
+  não casa (`DeoxysAttack Forme`, `Kyurem Black Kyurem`, `Kyurem White Kyurem`,
+  `Zygarde Half Forme`, `Hoopa Confined`). **Resultado: 799 de 800 registros
+  conciliados (99,9%)** — 700 por slug exato e 99 como forma alternativa; o único não
+  conciliado é a `linha 63` (nome ausente, problema 2). Auditoria completa em
+  `conciliacao.csv` (800 linhas) e em `silver.log_conciliacao`.
+  - As formas **Primal** de Kyogre e Groudon **são conciliadas** (`kyogre-primal` e
+    `groudon-primal` existem em `/pokemon/`); a herança de atributos de espécie das
+    formas alternativas é feita pela lista `varieties[]` da espécie pai. Nenhuma linha é
+    descartada silenciosamente.
 - **Problema 2 (nome ausente, linha 63):** conceituado como **dado ausente** (a informação
   existe no domínio, faltou na fonte). O Pokémon participa de 54 combates no conjunto de
-  dados; permanece no modelo como linha própria com id_csv=63 e categoria/genêra
-  provenientes do CSV, sem `nome_original` (`DESCONHECIDO`). Seus confrontos não são
+  dados; permanece no modelo como linha própria com id_csv=63, tipo e geração
+  provenientes do CSV e `nome_original` = `DESCONHECIDO`. Seus confrontos não são
   descartados — **entram 50.000 combates e permanecem 50.000**.
 - **Problema 3 (habitat nulo pós‑FRLG):** conceituado como **conceito inaplicável**.
   Espécies das gerações I–III com habitat definido apontam para `dim_habitat` real;
   espécies posteriores (ou nulas por não se aplicar) apontam para o membro especial
   `NAO_SE_APLICA` (não simplesmente NULL — distinto de `SEM_INFORMACAO`, usado apenas
   onde realmente não há dado). **Formas alternativas herdam os atributos de espécie da
-  espécie pai**, resolvida pela lista `varieties[]` da própria espécie (forma → espécie);
-  quando a forma não existe na ponte `varieties[]` (casos `PARCIAL`), herda-se pela
-  associação de nome base.
+  espécie pai**, resolvida pela lista `varieties[]` da própria espécie (forma → espécie).
 
 **Tipos (decisão sobre os 21):** a PokéAPI retorna 21 tipos; **apenas os 18 tipos reais
 (IDs 1–18) são carregados** em `dim_tipo` (mais o membro especial `SEM_TIPO`). `stellar`
@@ -265,7 +281,7 @@ perguntas do enunciado.
   reconstrói. `gold.log_publicacao` guarda uma linha por tabela por carga (reescrita).
 - **Auditoria de valores:** contagens esperadas — 6 gerações; 18 tipos (+ membro
   especial); 324 pares de efetividade; 50.000 combates (100.000 participações);
-  800 registros no CSV (797 conciliados); ~800 Pokémon na dimensão (§ 4.3).
+  800 registros no CSV (799 conciliados); 941 Pokémon na dimensão (§ 4.3).
 
 ## 8. Decisões de projeto não especificadas pelo enunciado
 
@@ -282,6 +298,13 @@ perguntas do enunciado.
    dimensões de atributo de espécie.
 6. **Formas da API ausentes do CSV**: também entram em `dim_pokemon` (iden­tificação
    completa do cadastro, análise 1–2) mesmo sem participar de batalhas.
+7. **Estrela estrita: atributos de espécie replicados na fato.** Para satisfazer o RS2
+   (nenhuma dimensão ligada a dimensão), `dim_pokemon` **não** referencia
+   `dim_tipo`/`dim_geracao`/`dim_habitat`/…; guarda tipo, geração e habitat como texto e
+   serve às análises de cadastro (1 e 2). As mesmas dimensões ligam-se à `fato_confronto`
+   via chaves estrangeiras, servindo aos agregados de batalha (4, 6, 7 e 8). Custo: as
+   dimensões de atributo aparecem nos dois pontos (fato e cópia textual em
+   `dim_pokemon`); benefício: cumpre o RS2 sem dupla contagem nas análises 1–2.
 
 ## 9. Restrição de bibliotecas (R11)
 

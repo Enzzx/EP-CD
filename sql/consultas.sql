@@ -8,47 +8,44 @@
 -- ---------------------------------------------------------------------------
 -- Análise 1 — Quantidade de Pokémon por tipo primário e por geração (matriz)
 -- (verificação de consistência da conciliação)
+-- Os atributos tipo/geração residem em dim_pokemon (sem FK a outras dimensões),
+-- por isso a contagem parte apenas do cadastro — sem dupla contagem da fato.
 -- ---------------------------------------------------------------------------
 SELECT
-    t.nome_tipo                   AS tipo_primario,
-    g.id_geracao                  AS geracao,
-    COUNT(p.sk_pokemon)           AS qtd_pokemon
-FROM silver.dim_pokemon p
-JOIN silver.dim_tipo t            ON t.sk_tipo = p.sk_tipo_primario
-JOIN silver.dim_geracao g         ON g.sk_geracao = p.sk_geracao
-GROUP BY t.nome_tipo, g.id_geracao
-ORDER BY t.nome_tipo, g.id_geracao;
+    tipo_primario,
+    geracao,
+    COUNT(*)                      AS qtd_pokemon
+FROM silver.dim_pokemon
+GROUP BY tipo_primario, geracao
+ORDER BY tipo_primario, geracao;
 
 -- ---------------------------------------------------------------------------
 -- Análise 2 — Média de cada atributo de status por tipo primário
 -- ---------------------------------------------------------------------------
 SELECT
-    t.nome_tipo                   AS tipo_primario,
-    ROUND(AVG(p.hp_base)::numeric, 2)                 AS hp_medio,
-    ROUND(AVG(p.ataque_base)::numeric, 2)             AS ataque_medio,
-    ROUND(AVG(p.defesa_base)::numeric, 2)             AS defesa_medio,
-    ROUND(AVG(p.ataque_especial_base)::numeric, 2)    AS sp_atk_medio,
-    ROUND(AVG(p.defesa_especial_base)::numeric, 2)    AS sp_def_medio,
-    ROUND(AVG(p.velocidade_base)::numeric, 2)         AS velocidade_medio,
-    COUNT(p.sk_pokemon)           AS qtd_pokemon
-FROM silver.dim_pokemon p
-JOIN silver.dim_tipo t            ON t.sk_tipo = p.sk_tipo_primario
-GROUP BY t.nome_tipo
+    tipo_primario,
+    ROUND(AVG(hp_base)::numeric, 2)                 AS hp_medio,
+    ROUND(AVG(ataque_base)::numeric, 2)             AS ataque_medio,
+    ROUND(AVG(defesa_base)::numeric, 2)             AS defesa_medio,
+    ROUND(AVG(ataque_especial_base)::numeric, 2)    AS sp_atk_medio,
+    ROUND(AVG(defesa_especial_base)::numeric, 2)    AS sp_def_medio,
+    ROUND(AVG(velocidade_base)::numeric, 2)         AS velocidade_medio,
+    COUNT(*)                      AS qtd_pokemon
+FROM silver.dim_pokemon
+GROUP BY tipo_primario
 ORDER BY velocidade_medio DESC;
 
 -- Tipo de maior velocidade média
-SELECT t.nome_tipo, ROUND(AVG(p.velocidade_base)::numeric,2) AS velocidade_medio
-FROM silver.dim_pokemon p
-JOIN silver.dim_tipo t ON t.sk_tipo = p.sk_tipo_primario
-GROUP BY t.nome_tipo
+SELECT tipo_primario, ROUND(AVG(velocidade_base)::numeric,2) AS velocidade_medio
+FROM silver.dim_pokemon
+GROUP BY tipo_primario
 ORDER BY velocidade_medio DESC
 LIMIT 1;
 
 -- Tipo de maior resistência média
-SELECT t.nome_tipo, ROUND(AVG(p.defesa_base)::numeric,2) AS defesa_medio
-FROM silver.dim_pokemon p
-JOIN silver.dim_tipo t ON t.sk_tipo = p.sk_tipo_primario
-GROUP BY t.nome_tipo
+SELECT tipo_primario, ROUND(AVG(defesa_base)::numeric,2) AS defesa_medio
+FROM silver.dim_pokemon
+GROUP BY tipo_primario
 ORDER BY defesa_medio DESC
 LIMIT 1;
 

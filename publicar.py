@@ -46,16 +46,11 @@ MATERIALIZACOES = {
     """,
     # Análise 4 — taxa de vitórias por tipo primário (grão: tipo)
     "gold.taxa_vitorias_por_tipo": """
-        WITH participacoes AS (
-            SELECT f.venceu, d.sk_tipo_primario
-            FROM silver.fato_confronto f
-            JOIN silver.dim_pokemon d ON d.sk_pokemon = f.sk_pokemon
-        )
         SELECT t.sk_tipo, t.nome_tipo,
-               ROUND(AVG(p.venceu::numeric), 5) AS taxa,
+               ROUND(AVG(f.venceu::numeric), 5) AS taxa,
                COUNT(*) AS combates
-        FROM participacoes p
-        JOIN silver.dim_tipo t ON t.sk_tipo = p.sk_tipo_primario
+        FROM silver.fato_confronto f
+        JOIN silver.dim_tipo t ON t.sk_tipo = f.sk_tipo_primario
         GROUP BY t.sk_tipo, t.nome_tipo;
     """,
     # Análise 5 — taxa de vitórias por faixa de diferença de velocidade (grão: faixa)
@@ -114,14 +109,12 @@ MATERIALIZACOES = {
             SELECT f.venceu,
                    ef1.multiplicador * COALESCE(ef2.multiplicador, 1) AS multiplicador
             FROM silver.fato_confronto f
-            JOIN silver.dim_pokemon d1 ON d1.sk_pokemon = f.sk_pokemon
-            JOIN silver.dim_pokemon d2 ON d2.sk_pokemon = f.sk_oponente
             JOIN silver.efetividade_tipo ef1
-                 ON ef1.sk_tipo_atacante = d1.sk_tipo_primario
-                AND ef1.sk_tipo_defensor = d2.sk_tipo_primario
+                 ON ef1.sk_tipo_atacante = f.sk_tipo_primario
+                AND ef1.sk_tipo_defensor = f.sk_tipo_primario_oponente
             LEFT JOIN silver.efetividade_tipo ef2
-                 ON ef2.sk_tipo_atacante = d1.sk_tipo_primario
-                AND ef2.sk_tipo_defensor = d2.sk_tipo_secundario
+                 ON ef2.sk_tipo_atacante = f.sk_tipo_primario
+                AND ef2.sk_tipo_defensor = f.sk_tipo_secundario_oponente
         )
         SELECT multiplicador,
                ROUND(AVG(venceu::numeric), 5) AS taxa,
@@ -132,36 +125,28 @@ MATERIALIZACOES = {
     """,
     # Análise 7 — matriz de confronto 18x18 (grão: par tipo atacante x tipo defensor)
     "gold.matriz_confronto": """
-        SELECT d1.sk_tipo_primario, d2.sk_tipo_primario,
+        SELECT f.sk_tipo_primario, f.sk_tipo_primario_oponente,
                t1.nome_tipo, t2.nome_tipo,
                ROUND(AVG(f.venceu::numeric), 5) AS taxa,
                ef.multiplicador,
                COUNT(*) AS qtd
         FROM silver.fato_confronto f
-        JOIN silver.dim_pokemon d1 ON d1.sk_pokemon = f.sk_pokemon
-        JOIN silver.dim_pokemon d2 ON d2.sk_pokemon = f.sk_oponente
-        JOIN silver.dim_tipo t1 ON t1.sk_tipo = d1.sk_tipo_primario
-        JOIN silver.dim_tipo t2 ON t2.sk_tipo = d2.sk_tipo_primario
+        JOIN silver.dim_tipo t1 ON t1.sk_tipo = f.sk_tipo_primario
+        JOIN silver.dim_tipo t2 ON t2.sk_tipo = f.sk_tipo_primario_oponente
         JOIN silver.efetividade_tipo ef
-             ON ef.sk_tipo_atacante = d1.sk_tipo_primario
-            AND ef.sk_tipo_defensor = d2.sk_tipo_primario
-        GROUP BY d1.sk_tipo_primario, d2.sk_tipo_primario,
+             ON ef.sk_tipo_atacante = f.sk_tipo_primario
+            AND ef.sk_tipo_defensor = f.sk_tipo_primario_oponente
+        GROUP BY f.sk_tipo_primario, f.sk_tipo_primario_oponente,
                  t1.nome_tipo, t2.nome_tipo, ef.multiplicador
         ORDER BY t1.nome_tipo, t2.nome_tipo;
     """,
     # Análise 8 (proposta) — taxa de vitórias por habitat (grão: habitat)
     "gold.taxa_vitorias_por_habitat": """
-        WITH hab AS (
-            SELECT f.venceu, d.sk_habitat
-            FROM silver.fato_confronto f
-            JOIN silver.dim_pokemon d ON d.sk_pokemon = f.sk_pokemon
-            WHERE d.sk_habitat IS NOT NULL
-        )
         SELECT h.sk_habitat, h.nome_habitat,
-               ROUND(AVG(hab.venceu::numeric), 5) AS taxa,
+               ROUND(AVG(f.venceu::numeric), 5) AS taxa,
                COUNT(*) AS qtd
-        FROM hab
-        JOIN silver.dim_habitat h ON h.sk_habitat = hab.sk_habitat
+        FROM silver.fato_confronto f
+        JOIN silver.dim_habitat h ON h.sk_habitat = f.sk_habitat
         GROUP BY h.sk_habitat, h.nome_habitat
         ORDER BY h.nome_habitat;
     """,

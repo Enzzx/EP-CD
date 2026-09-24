@@ -1,9 +1,8 @@
 # Relatório de Resultados e Interpretação — EP01
 
 **Integrantes do grupo:**
-- _Nome Completo do Integrante 1_
-- _Nome Completo do Integrante 2_
-- _Nome Completo do Integrante 3_
+- Enzo Silva Bellotti
+- Clóvis de Almeida Pelosini
 
 > Todos os valores abaixo são a saída real das consultas de `sql/consultas.sql`,
 > executadas sobre o banco populado pelo pipeline (`publicar.py`).
